@@ -1,0 +1,65 @@
+# packages.dorhawk.software from each app's latest GitHub release
+# (apps.json): fetched, tested in containers with a throwaway key, the RPMs
+# signed with the repository's key, the apt and dnf indexes built, signed
+# and uploaded to the R2 bucket, then installed from the live site.
+# Runs when an app's release asks (repository_dispatch "release", with the
+# app's repo and tag), on a push here (the page, the scripts), by hand,
+# and every hour in case an ask was missed; the hourly run stops at once
+# when there's nothing new.
+name: Publish
+
+on:
+  push:
+    branches: [main]
+  repository_dispatch:
+    types: [release]
+  workflow_dispatch:
+  schedule:
+    - cron: "17 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Each app's latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.event.client_payload.repo }}
+          TAG: ${{ github.event.client_payload.tag }}
+        run: scripts/fetch-releases.sh dist "$REPO" "$TAG"
+      - name: Anything new?
+        id: new
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = schedule ] && scripts/up-to-date.sh dist; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: The repository works, with a throwaway key, in containers with no network
+        if: steps.new.outputs.publish == 'true'
+        run: scripts/repo-test.sh dist
+      - name: The RPMs signed with the repository's key
+        if: steps.new.outputs.publish == 'true'
+        env:
+          PACKAGES_GPG_KEY: ${{ secrets.PACKAGES_GPG_KEY }}
+        run: scripts/sign-rpm.sh dist
+      - name: Into packages.dorhawk.software
+        if: steps.new.outputs.publish == 'true'
+        env:
+          PACKAGES_GPG_KEY: ${{ secrets.PACKAGES_GPG_KEY }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+        run: scripts/publish.sh dist
+      - name: apt and dnf install from there
+        if: steps.new.outputs.publish == 'true'
+        run: scripts/repo-test.sh --live https://packages.dorhawk.software
