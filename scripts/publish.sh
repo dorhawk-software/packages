@@ -33,6 +33,8 @@ found=0
 for f in "$DIST"/*.deb; do [ -e "$f" ] && cp "$f" "$REPO/apt/pool/main/" && found=1; done
 for f in "$DIST"/*.rpm; do [ -e "$f" ] && cp "$f" "$REPO/rpm/" && found=1; done
 [ "$found" = 1 ] || { echo "no packages in $DIST" >&2; exit 1; }
+# Each app's latest version and day (fetch-releases.sh), for dorhawk.software.
+[ ! -e "$DIST/versions.json" ] || cp "$DIST/versions.json" "$REPO/versions.json"
 scripts/build-repo.sh "$REPO"
 # In this order, each step only naming files the steps before put up:
 # the packages, what the indexes list them in, the signed files at the top

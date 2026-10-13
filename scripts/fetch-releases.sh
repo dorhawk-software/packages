@@ -15,4 +15,14 @@ for repo in $(jq -r '.[].repo' apps.json); do
         gh release download --repo "$repo" --pattern '*.deb' --pattern '*.rpm' --dir "$DIR" --clobber
     fi
 done
+# Each app's version and release day, for versions.json (dorhawk.software
+# shows them): the release the packages came from.
+for repo in $(jq -r '.[].repo' apps.json); do
+    package=$(jq -r --arg r "$repo" '.[] | select(.repo == $r) | .package' apps.json)
+    tag=$(ls "$DIR" | sed -n "s/^${package}_\([0-9][0-9.]*\)_amd64\.deb\$/\1/p" | sort -V | tail -n1)
+    [ -n "$tag" ] || continue
+    gh release view "v$tag" --repo "$repo" --json tagName,publishedAt \
+        --jq "{\"$package\": {version: (.tagName | ltrimstr(\"v\")), released: (.publishedAt | .[0:10])}}"
+done | jq -s 'add // {}' > "$DIR/versions.json"
+cat "$DIR/versions.json"
 ls "$DIR"
